@@ -1,0 +1,60 @@
+================================================================================
+TRESA ROBUSTNESS BENCHMARK SUMMARY
+================================================================================
+
+Random Forest Baseline (Graph-Agnostic):
+  F1 Macro:  0.9827 ± 0.0024
+  AUC-ROC:   0.9982 ± 0.0004
+  Categories F1: {'fake_followers': 0.9949010197960408, 'genuine': 0.0, 'social_spambot': 0.9931331351849954, 'trad_spambot': 0.9952262745846859}
+
+--------------------------------------------------
+Paradigm: RANDOM
+--------------------------------------------------
+
+Model: SAGE_VANILLA
+  Robustness AUC: 0.9789
+    Drop=0%: F1=0.9795 ± 0.0023 | AUC=0.9963
+              Categories: {'fake_followers': 0.9923319801533604, 'genuine': 0.0, 'social_spambot': 0.9919967166016828, 'trad_spambot': 0.9927258805513017}
+    Drop=20%: F1=0.9794 ± 0.0025 | AUC=0.9965
+              Categories: {'fake_followers': 0.9921804511278195, 'genuine': 0.0, 'social_spambot': 0.9918932786044126, 'trad_spambot': 0.9933039984694854}
+    Drop=40%: F1=0.9785 ± 0.0024 | AUC=0.9966
+              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9905466502260584, 'trad_spambot': 0.9929186602870813}
+    Drop=60%: F1=0.9780 ± 0.0028 | AUC=0.9965
+              Categories: {'fake_followers': 0.9929376408715251, 'genuine': 0.0, 'social_spambot': 0.9900277577876015, 'trad_spambot': 0.9931113662456946}
+
+Model: TRESA
+  Robustness AUC: 0.9663
+    Drop=0%: F1=0.9788 ± 0.0030 | AUC=0.9967
+              Categories: {'fake_followers': 0.9923319801533604, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9923400995787055}
+    Drop=20%: F1=0.9627 ± 0.0046 | AUC=0.9897
+              Categories: {'fake_followers': 0.9697156033820138, 'genuine': 0.0, 'social_spambot': 0.9906503647385184, 'trad_spambot': 0.9940737908621678}
+    Drop=40%: F1=0.9649 ± 0.0041 | AUC=0.9885
+              Categories: {'fake_followers': 0.9843915744809819, 'genuine': 0.0, 'social_spambot': 0.991168617785993, 'trad_spambot': 0.995418098510882}
+    Drop=60%: F1=0.9640 ± 0.0061 | AUC=0.9917
+              Categories: {'fake_followers': 0.9731882947755477, 'genuine': 0.0, 'social_spambot': 0.990339157245632, 'trad_spambot': 0.9931113662456946}
+
+--------------------------------------------------
+Paradigm: DEGREE_BIASED
+--------------------------------------------------
+
+Model: SAGE_VANILLA
+  Robustness AUC: 0.9795
+    Drop=0%: F1=0.9793 ± 0.0029 | AUC=0.9966
+              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9931113662456946}
+    Drop=20%: F1=0.9791 ± 0.0023 | AUC=0.9967
+              Categories: {'fake_followers': 0.9920288765227854, 'genuine': 0.0, 'social_spambot': 0.9917898193760263, 'trad_spambot': 0.9927258805513017}
+    Drop=40%: F1=0.9801 ± 0.0028 | AUC=0.9965
+              Categories: {'fake_followers': 0.9936936936936936, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9940737908621678}
+    Drop=60%: F1=0.9794 ± 0.0022 | AUC=0.9966
+              Categories: {'fake_followers': 0.9930889423076923, 'genuine': 0.0, 'social_spambot': 0.9913757700205339, 'trad_spambot': 0.9931113662456946}
+
+Model: TRESA
+  Robustness AUC: 0.9636
+    Drop=0%: F1=0.9795 ± 0.0030 | AUC=0.9966
+              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9919967166016828, 'trad_spambot': 0.9933039984694854}
+    Drop=20%: F1=0.9584 ± 0.0041 | AUC=0.9923
+              Categories: {'fake_followers': 0.9659003240240703, 'genuine': 0.0, 'social_spambot': 0.9901315789473685, 'trad_spambot': 0.9909875359539789}
+    Drop=40%: F1=0.9619 ± 0.0052 | AUC=0.9917
+              Categories: {'fake_followers': 0.9720858895705522, 'genuine': 0.0, 'social_spambot': 0.9907540579412369, 'trad_spambot': 0.9913743530764807}
+    Drop=60%: F1=0.9616 ± 0.0064 | AUC=0.9931
+              Categories: {'fake_followers': 0.9701905347264905, 'genuine': 0.0, 'social_spambot': 0.9898200514138817, 'trad_spambot': 0.9906004220218684}

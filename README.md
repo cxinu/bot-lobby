@@ -89,6 +89,13 @@ robust to API-incomplete graph data.
 All GNN models start below the RF baseline at 0% drop. There is no crossover —
 the GNNs never match RF on this dataset regardless of edge completeness.
 
+### Robustness Visualizations
+Below are the F1 score decay curves and the comparison heatmaps under the random and degree-biased sparsification paradigms:
+
+![Figure 1: Robustness Curves](./results/robustness_curves.png)
+
+![Figure 2: Robustness Heatmap](./results/robustness_heatmap.png)
+
 ---
 
 ## 5. Key findings
@@ -209,6 +216,14 @@ bot_detection/
 ├── robustness_eval.py           Plotting + results summary
 └── RESEARCH.md                     This file
 ```
+
+---
+
+## 11. Appendix: Per-Category Breakdown
+
+Below is the per-category OOF F1 score breakdown comparing 0% drop vs 60% drop rate for SAGE vanilla and TRESA across both sparsification paradigms:
+
+![Appendix Figure 1: Per-Category F1 Breakdown](./results/cat_f1_breakdown.png)
 
 ---
 
