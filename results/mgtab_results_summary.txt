@@ -1,0 +1,14 @@
+TRESA ROBUSTNESS EVALUATION — MGTAB
+==============================================================
+Dataset: 10,199 nodes  |  1,700,108 edges  |  0.5% isolated
+CV: 5-fold stratified  |  Metric: macro F1
+
+Table 1: F1 across sparsification levels
+--------------------------------------------------------------
+Model                   Paradigm             0%      20%      40%      60%  Rob.AUC
+--------------------------------------------------------------
+RF (node-only)          —               0.8908  0.8908  0.8908  0.8908     —
+SAGE vanilla            random          0.8833  0.8830  0.8821  0.8845  0.8830
+TRESA (ours)            random          0.8833  0.8824  0.8813  0.8821  0.8821
+SAGE vanilla            degree_biased   0.8849  0.8816  0.8825  0.8816  0.8825
+TRESA (ours)            degree_biased   0.8840  0.8830  0.8815  0.8810  0.8823
