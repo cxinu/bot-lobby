@@ -113,8 +113,8 @@ for ax, paradigm in zip(axes, PARADIGMS):
     ax.set_xlim(-3, 65)
     ax.set_xticks([0, 20, 40, 60])
     ax.set_xticklabels(DROP_LABELS)
-    ax.set_ylim(0.940, 0.998)
-    ax.set_yticks([0.94, 0.95, 0.96, 0.97, 0.98, 0.99])
+    ax.set_ylim(0.60, 1.00)
+    ax.set_yticks([0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
     if paradigm == "random":
         ax.set_ylabel("Macro F1")
 
