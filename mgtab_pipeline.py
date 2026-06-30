@@ -14,7 +14,8 @@ Pipeline:
   2. RF baseline (node features only — 788-dim)
   3. GraphSAGE vanilla across sparsification grid
   4. TRESA (SAGE + L_lp) across sparsification grid
-  5. Robustness AUC comparison → validate/refute cresci-2017 finding
+  5. GCN/GAT baselines across sparsification grid
+  6. Robustness AUC comparison
 
 The critical comparison:
   cresci-2017: SAGE flat under drop (already graph-agnostic)
@@ -41,7 +42,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import SAGEConv, GCNConv, GATConv
 from torch_geometric.utils import add_self_loops
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import RobustScaler
@@ -184,13 +185,12 @@ ts(f"  Cat F1 → bot={rf_result['cat_f1']['bot']:.4f}  "
    f"genuine={rf_result['cat_f1']['genuine']:.4f}")
 
 
-# ── GNN model ─────────────────────────────────────────────────────────────────
+# ── GNN model classes ──────────────────────────────────────────────────────────
 
 class BotSAGE(nn.Module):
     """
     Same architecture as cresci pipeline with one addition:
     input projection (788 → PROJ_DIM) before the SAGE layers.
-    Without this, 788-dim × 256 hidden × 10k nodes strains 6GB VRAM.
     """
     def __init__(self, in_dim, proj_dim=128, hidden=256, dropout=0.4):
         super().__init__()
@@ -199,6 +199,38 @@ class BotSAGE(nn.Module):
         self.conv1 = SAGEConv(proj_dim,      hidden,      aggr="mean", normalize=True)
         self.conv2 = SAGEConv(hidden,        hidden // 2, aggr="mean", normalize=True)
         self.conv3 = SAGEConv(hidden // 2,   64,          aggr="mean", normalize=True)
+        self.bn1   = nn.BatchNorm1d(hidden)
+        self.bn2   = nn.BatchNorm1d(hidden // 2)
+        self.bn3   = nn.BatchNorm1d(64)
+        self.cls_head = nn.Sequential(
+            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1)
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def encode(self, x, edge_index):
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.shape[0])
+        x = self.drop(F.relu(self.bn_p(self.proj(x))))
+        x = self.drop(F.relu(self.bn1(self.conv1(x, edge_index))))
+        x = self.drop(F.relu(self.bn2(self.conv2(x, edge_index))))
+        x = self.drop(F.relu(self.bn3(self.conv3(x, edge_index))))
+        return x
+
+    def forward(self, x, edge_index):
+        return self.cls_head(self.encode(x, edge_index)).squeeze(-1)
+
+    def link_logits(self, h, lp_ei):
+        return (h[lp_ei[0]] * h[lp_ei[1]]).sum(dim=-1)
+
+
+class BotGCN(nn.Module):
+    """GCN: 3-layer GCNConv with input projection and symmetric normalisation."""
+    def __init__(self, in_dim, proj_dim=128, hidden=256, dropout=0.4):
+        super().__init__()
+        self.proj  = nn.Linear(in_dim, proj_dim)
+        self.bn_p  = nn.BatchNorm1d(proj_dim)
+        self.conv1 = GCNConv(proj_dim,      hidden,      normalize=True)
+        self.conv2 = GCNConv(hidden,        hidden // 2, normalize=True)
+        self.conv3 = GCNConv(hidden // 2,   64,          normalize=True)
         self.bn1   = nn.BatchNorm1d(hidden)
         self.bn2   = nn.BatchNorm1d(hidden // 2)
         self.bn3   = nn.BatchNorm1d(64)
@@ -221,10 +253,55 @@ class BotSAGE(nn.Module):
         return (h[lp_ei[0]] * h[lp_ei[1]]).sum(dim=-1)
 
 
+class BotGAT(nn.Module):
+    """
+    GAT: 3-layer GATConv with multi-head attention and input projection.
+    Heads: 2×64→128, 2×64→128, 1×64→64 (2 heads to avoid CUDA OOM on MGTAB dense graph)
+    """
+    def __init__(self, in_dim, proj_dim=128, hidden=256, dropout=0.4):
+        super().__init__()
+        self.proj  = nn.Linear(in_dim, proj_dim)
+        self.bn_p  = nn.BatchNorm1d(proj_dim)
+        self.conv1 = GATConv(proj_dim,  64, heads=2, concat=True)
+        self.conv2 = GATConv(128,       64, heads=2, concat=True)
+        self.conv3 = GATConv(128,       64, heads=1, concat=False)
+        self.bn1   = nn.BatchNorm1d(128)
+        self.bn2   = nn.BatchNorm1d(128)
+        self.bn3   = nn.BatchNorm1d(64)
+        self.cls_head = nn.Sequential(
+            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1)
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def encode(self, x, edge_index):
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.shape[0])
+        x = self.drop(F.relu(self.bn_p(self.proj(x))))
+        x = self.drop(F.relu(self.bn1(self.conv1(x, edge_index))))
+        x = self.drop(F.relu(self.bn2(self.conv2(x, edge_index))))
+        x = self.drop(F.relu(self.bn3(self.conv3(x, edge_index))))
+        return x
+
+    def forward(self, x, edge_index):
+        return self.cls_head(self.encode(x, edge_index)).squeeze(-1)
+
+    def link_logits(self, h, lp_ei):
+        return (h[lp_ei[0]] * h[lp_ei[1]]).sum(dim=-1)
+
+
+MODEL_CLASSES = {
+    "sage_vanilla": BotSAGE,
+    "tresa":        BotSAGE,
+    "gcn_vanilla":  BotGCN,
+    "gcn_tresa":    BotGCN,
+    "gat_vanilla":  BotGAT,
+    "gat_tresa":    BotGAT,
+}
+
+
 # ── GNN fold trainer ──────────────────────────────────────────────────────────
 
 def train_fold(X_scaled, y, tr_idx, va_idx, full_ei, sparse_ei_fn,
-               use_lp, lambda_lp, num_nodes, neg_sampler, rng):
+               use_lp, lambda_lp, num_nodes, neg_sampler, rng, model_class):
 
     x_t = torch.tensor(X_scaled, dtype=torch.float32).to(DEVICE)
     y_t = torch.tensor(y, dtype=torch.float32).to(DEVICE)
@@ -240,11 +317,10 @@ def train_fold(X_scaled, y, tr_idx, va_idx, full_ei, sparse_ei_fn,
     n_pos_cls = int((y[tr_idx] == 1).sum())
     pos_weight = torch.tensor([n_neg_cls / n_pos_cls], dtype=torch.float32).to(DEVICE)
 
-    # Full graph with self-loops for validation
-    full_sl, _ = add_self_loops(full_ei, num_nodes=num_nodes)
-    full_sl_d  = full_sl.to(DEVICE)
+    # Raw full graph (each model adds self-loops internally)
+    full_d = full_ei.to(DEVICE)
 
-    model     = BotSAGE(X_scaled.shape[1], PROJ_DIM, HIDDEN, DROPOUT).to(DEVICE)
+    model     = model_class(X_scaled.shape[1], PROJ_DIM, HIDDEN, DROPOUT).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
@@ -257,8 +333,7 @@ def train_fold(X_scaled, y, tr_idx, va_idx, full_ei, sparse_ei_fn,
         optimizer.zero_grad()
 
         kept_ei, dropped_ei = sparse_ei_fn(epoch)
-        kept_sl, _ = add_self_loops(kept_ei, num_nodes=num_nodes)
-        train_ei_d = kept_sl.to(DEVICE)
+        train_ei_d = kept_ei.to(DEVICE)
 
         h          = model.encode(x_t, train_ei_d)
         cls_logits = model.cls_head(h).squeeze(-1)
@@ -294,7 +369,7 @@ def train_fold(X_scaled, y, tr_idx, va_idx, full_ei, sparse_ei_fn,
         if epoch % 5 == 0:
             model.eval()
             with torch.no_grad():
-                logits = model(x_t, full_sl_d)
+                logits = model(x_t, full_d)
                 probs  = torch.sigmoid(logits[va_mask_d]).cpu().numpy()
                 preds  = (probs >= 0.5).astype(int)
                 val_f1 = f1_score(y[va_idx], preds, average="macro", zero_division=0)
@@ -311,16 +386,22 @@ def train_fold(X_scaled, y, tr_idx, va_idx, full_ei, sparse_ei_fn,
     model.load_state_dict({k: v.to(DEVICE) for k, v in best_state.items()})
     model.eval()
     with torch.no_grad():
-        logits = model(x_t, full_sl_d)
+        logits = model(x_t, full_d)
         probs  = torch.sigmoid(logits[va_mask_d]).cpu().numpy()
         preds  = (probs >= 0.5).astype(int)
         val_f1 = f1_score(y[va_idx], preds, average="macro", zero_division=0)
         val_auc = roc_auc_score(y[va_idx], probs)
 
+    # Explicit memory cleanup to prevent CUDA fragmentation/OOM across loops
+    del model, optimizer, x_t, y_t, tr_mask_d, va_mask_d, full_d
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
     return val_f1, val_auc, best_epoch, preds, probs
 
 
-def run_gnn(X_np, y_np, full_ei, num_nodes, drop_rate, paradigm, use_lp):
+def run_gnn(X_np, y_np, full_ei, num_nodes, drop_rate, paradigm, use_lp, model_class):
     rng      = np.random.default_rng(SEED)
     neg_samp = NegativeSampler(full_ei, num_nodes=num_nodes, ratio=1)
 
@@ -350,7 +431,7 @@ def run_gnn(X_np, y_np, full_ei, num_nodes, drop_rate, paradigm, use_lp):
         f1, auc, ep, preds, probs = train_fold(
             X_scaled, y_np, tr_idx, va_idx,
             full_ei, sparse_ei_fn, use_lp, LAMBDA_LP,
-            num_nodes, neg_samp, rng
+            num_nodes, neg_samp, rng, model_class,
         )
         fold_f1s.append(f1)
         fold_aucs.append(auc)
@@ -369,20 +450,40 @@ def run_gnn(X_np, y_np, full_ei, num_nodes, drop_rate, paradigm, use_lp):
 # ── Main experiment loop ──────────────────────────────────────────────────────
 results = {"rf": rf_result}
 
+model_variants = [
+    ("sage_vanilla", False),
+    ("tresa",        True),
+    ("gcn_vanilla",  False),
+    ("gcn_tresa",    True),
+    ("gat_vanilla",  False),
+    ("gat_tresa",    True),
+]
+
+DISPLAY_NAMES = {
+    "sage_vanilla": "SAGE vanilla",
+    "tresa":        "TRESA (SAGE)",
+    "gcn_vanilla":  "GCN vanilla",
+    "gcn_tresa":    "TRESA (GCN)",
+    "gat_vanilla":  "GAT vanilla",
+    "gat_tresa":    "TRESA (GAT)",
+}
+
 for paradigm in PARADIGMS:
-    for model_name, use_lp in [("sage_vanilla", False), ("tresa", True)]:
+    for model_name, use_lp in model_variants:
         key = f"{model_name}_{paradigm}"
         results[key] = {}
         f1_curve = []
 
         ts(f"\n{'='*58}")
-        ts(f"Model: {model_name.upper()}  |  Paradigm: {paradigm}")
+        ts(f"Model: {DISPLAY_NAMES[model_name]:>15s}  |  Paradigm: {paradigm}")
         ts(f"{'='*58}")
+
+        model_class = MODEL_CLASSES[model_name]
 
         for drop_rate in DROP_RATES:
             t0  = time.time()
             res = run_gnn(X_np, y_np, edge_index, N,
-                          drop_rate, paradigm, use_lp)
+                          drop_rate, paradigm, use_lp, model_class)
             elapsed = time.time() - t0
             results[key][str(drop_rate)] = res
             f1_curve.append((drop_rate, res["f1_mean"]))
@@ -395,44 +496,43 @@ for paradigm in PARADIGMS:
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-print(f"\n{'='*72}")
+print(f"\n{'='*100}")
 print("MGTAB ROBUSTNESS SUMMARY")
-print(f"{'='*72}")
-print(f"  {'Model':22s}  {'Paradigm':14s}  {'F1@0%':>7}  {'F1@20%':>7}  "
+print(f"{'='*100}")
+print(f"  {'Model':25s}  {'Paradigm':14s}  {'F1@0%':>7}  {'F1@20%':>7}  "
       f"{'F1@40%':>7}  {'F1@60%':>7}  {'RobAUC':>8}")
-print("  " + "-" * 70)
+print("  " + "-" * 74)
 
 rf_f1 = rf_result["f1_mean"]
-print(f"  {'RF (node-only)':22s}  {'—':14s}  {rf_f1:.4f}  {rf_f1:.4f}  "
+print(f"  {'RF (node-only)':25s}  {'—':14s}  {rf_f1:.4f}  {rf_f1:.4f}  "
       f"{rf_f1:.4f}  {rf_f1:.4f}  {'—':>8}")
 
 for paradigm in PARADIGMS:
-    for model_name in ["sage_vanilla", "tresa"]:
+    for model_name, _ in model_variants:
         key   = f"{model_name}_{paradigm}"
-        label = "TRESA (ours)" if model_name == "tresa" else "SAGE vanilla"
+        label = DISPLAY_NAMES[model_name]
         rob   = results[key]["robustness_auc"]
         vals  = [results[key][str(dr)]["f1_mean"] for dr in DROP_RATES]
-        print(f"  {label:22s}  {paradigm:14s}  " +
+        print(f"  {label:25s}  {paradigm:14s}  " +
               "  ".join(f"{v:.4f}" for v in vals) + f"  {rob:.4f}")
 
 # Crossover analysis
 print(f"\n  RF F1: {rf_f1:.4f}")
 print("  Crossover point (GNN drops below RF):")
 for paradigm in PARADIGMS:
-    for model_name in ["sage_vanilla", "tresa"]:
+    for model_name, _ in model_variants:
         key = f"{model_name}_{paradigm}"
         crossover = "never"
         for dr in DROP_RATES:
             if results[key][str(dr)]["f1_mean"] < rf_f1:
                 crossover = f"{dr:.0%}"
                 break
-        label = "TRESA      " if model_name == "tresa" else "SAGE vanilla"
-        print(f"    {label} [{paradigm}]: {crossover}")
+        print(f"    {DISPLAY_NAMES[model_name]:>15s} [{paradigm}]: {crossover}")
 
 # Cresci vs MGTAB comparison
-print(f"\n{'='*72}")
+print(f"\n{'='*100}")
 print("CRESCI-2017 vs MGTAB — KEY COMPARISON")
-print(f"{'='*72}")
+print(f"{'='*100}")
 print(f"  {'':30s}  {'cresci-2017':>14}  {'MGTAB':>10}")
 print("  " + "-" * 58)
 print(f"  {'Nodes':30s}  {'14,368':>14}  {'10,199':>10}")

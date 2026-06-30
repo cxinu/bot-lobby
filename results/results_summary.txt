@@ -1,60 +1,22 @@
+TRESA ROBUSTNESS EVALUATION — cresci-2017
 ================================================================================
-TRESA ROBUSTNESS BENCHMARK SUMMARY
-================================================================================
+Dataset: 14,368 nodes  |  1,423 retweet edges  |  96% isolated
+CV: 5-fold stratified  |  Metric: macro F1
 
-Random Forest Baseline (Graph-Agnostic):
-  F1 Macro:  0.9827 ± 0.0024
-  AUC-ROC:   0.9982 ± 0.0004
-  Categories F1: {'fake_followers': 0.9949010197960408, 'genuine': 0.0, 'social_spambot': 0.9931331351849954, 'trad_spambot': 0.9952262745846859}
-
---------------------------------------------------
-Paradigm: RANDOM
---------------------------------------------------
-
-Model: SAGE_VANILLA
-  Robustness AUC: 0.9789
-    Drop=0%: F1=0.9795 ± 0.0023 | AUC=0.9963
-              Categories: {'fake_followers': 0.9923319801533604, 'genuine': 0.0, 'social_spambot': 0.9919967166016828, 'trad_spambot': 0.9927258805513017}
-    Drop=20%: F1=0.9794 ± 0.0025 | AUC=0.9965
-              Categories: {'fake_followers': 0.9921804511278195, 'genuine': 0.0, 'social_spambot': 0.9918932786044126, 'trad_spambot': 0.9933039984694854}
-    Drop=40%: F1=0.9785 ± 0.0024 | AUC=0.9966
-              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9905466502260584, 'trad_spambot': 0.9929186602870813}
-    Drop=60%: F1=0.9780 ± 0.0028 | AUC=0.9965
-              Categories: {'fake_followers': 0.9929376408715251, 'genuine': 0.0, 'social_spambot': 0.9900277577876015, 'trad_spambot': 0.9931113662456946}
-
-Model: TRESA
-  Robustness AUC: 0.9663
-    Drop=0%: F1=0.9788 ± 0.0030 | AUC=0.9967
-              Categories: {'fake_followers': 0.9923319801533604, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9923400995787055}
-    Drop=20%: F1=0.9627 ± 0.0046 | AUC=0.9897
-              Categories: {'fake_followers': 0.9697156033820138, 'genuine': 0.0, 'social_spambot': 0.9906503647385184, 'trad_spambot': 0.9940737908621678}
-    Drop=40%: F1=0.9649 ± 0.0041 | AUC=0.9885
-              Categories: {'fake_followers': 0.9843915744809819, 'genuine': 0.0, 'social_spambot': 0.991168617785993, 'trad_spambot': 0.995418098510882}
-    Drop=60%: F1=0.9640 ± 0.0061 | AUC=0.9917
-              Categories: {'fake_followers': 0.9731882947755477, 'genuine': 0.0, 'social_spambot': 0.990339157245632, 'trad_spambot': 0.9931113662456946}
-
---------------------------------------------------
-Paradigm: DEGREE_BIASED
---------------------------------------------------
-
-Model: SAGE_VANILLA
-  Robustness AUC: 0.9795
-    Drop=0%: F1=0.9793 ± 0.0029 | AUC=0.9966
-              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9931113662456946}
-    Drop=20%: F1=0.9791 ± 0.0023 | AUC=0.9967
-              Categories: {'fake_followers': 0.9920288765227854, 'genuine': 0.0, 'social_spambot': 0.9917898193760263, 'trad_spambot': 0.9927258805513017}
-    Drop=40%: F1=0.9801 ± 0.0028 | AUC=0.9965
-              Categories: {'fake_followers': 0.9936936936936936, 'genuine': 0.0, 'social_spambot': 0.9915828371997536, 'trad_spambot': 0.9940737908621678}
-    Drop=60%: F1=0.9794 ± 0.0022 | AUC=0.9966
-              Categories: {'fake_followers': 0.9930889423076923, 'genuine': 0.0, 'social_spambot': 0.9913757700205339, 'trad_spambot': 0.9931113662456946}
-
-Model: TRESA
-  Robustness AUC: 0.9636
-    Drop=0%: F1=0.9795 ± 0.0030 | AUC=0.9966
-              Categories: {'fake_followers': 0.9927862939585211, 'genuine': 0.0, 'social_spambot': 0.9919967166016828, 'trad_spambot': 0.9933039984694854}
-    Drop=20%: F1=0.9584 ± 0.0041 | AUC=0.9923
-              Categories: {'fake_followers': 0.9659003240240703, 'genuine': 0.0, 'social_spambot': 0.9901315789473685, 'trad_spambot': 0.9909875359539789}
-    Drop=40%: F1=0.9619 ± 0.0052 | AUC=0.9917
-              Categories: {'fake_followers': 0.9720858895705522, 'genuine': 0.0, 'social_spambot': 0.9907540579412369, 'trad_spambot': 0.9913743530764807}
-    Drop=60%: F1=0.9616 ± 0.0064 | AUC=0.9931
-              Categories: {'fake_followers': 0.9701905347264905, 'genuine': 0.0, 'social_spambot': 0.9898200514138817, 'trad_spambot': 0.9906004220218684}
+Table 1: F1 across sparsification levels
+--------------------------------------------------------------------------------
+Model                      Paradigm             0%      20%      40%      60%  Rob.AUC
+--------------------------------------------------------------------------------
+RF (node-only)             —               0.9827  0.9827  0.9827  0.9827     —
+GraphSAGE vanilla          random          0.9801  0.9794  0.9793  0.9786  0.9793
+TRESA (SAGE)               random          0.9799  0.9609  0.9641  0.9629  0.9655
+GCN vanilla                random          0.9479  0.9484  0.9464  0.9479  0.9476
+TRESA (GCN)                random          0.9497  0.7588  0.7711  0.7034  0.7855
+GAT vanilla                random          0.9488  0.9483  0.9471  0.9472  0.9478
+TRESA (GAT)                random          0.9498  0.7688  0.6686  0.7142  0.7565
+GraphSAGE vanilla          degree_biased   0.9789  0.9792  0.9790  0.9793  0.9791
+TRESA (SAGE)               degree_biased   0.9799  0.9614  0.9644  0.9621  0.9656
+GCN vanilla                degree_biased   0.9482  0.9493  0.9488  0.9496  0.9490
+TRESA (GCN)                degree_biased   0.9505  0.8560  0.9129  0.9310  0.9032
+GAT vanilla                degree_biased   0.9459  0.9498  0.9490  0.9497  0.9489
+TRESA (GAT)                degree_biased   0.9495  0.7643  0.6433  0.7890  0.7589

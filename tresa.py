@@ -6,6 +6,10 @@ Trains three model variants across the full sparsification grid:
   RF          — graph-agnostic ceiling/floor (re-uses Step 3 results)
   SAGE_vanilla — GraphSAGE with no robustness mechanism
   TRESA       — GraphSAGE + joint L_cls + λ·L_lp
+  GCN_vanilla — GCN baseline
+  GCN_TRESA   — GCN + joint L_cls + λ·L_lp
+  GAT_vanilla — GAT baseline
+  GAT_TRESA   — GAT + joint L_cls + λ·L_lp
 
 Sparsification grid:
   drop_rates  = [0.0, 0.2, 0.4, 0.6]
@@ -33,7 +37,7 @@ warnings.filterwarnings("ignore")
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import SAGEConv, GCNConv, GATConv
 from torch_geometric.utils import add_self_loops
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import RobustScaler
@@ -78,14 +82,48 @@ NODE_FEATURES = [
     "is_isolated", "total_degree",
 ]
 
-# ── Model ─────────────────────────────────────────────────────────────────────
+# ── Model classes ──────────────────────────────────────────────────────────────
 
 class BotSAGE(nn.Module):
+    """GraphSAGE: 3-layer SAGEConv with mean aggregation."""
     def __init__(self, in_dim, hidden=256, dropout=0.4):
         super().__init__()
         self.conv1 = SAGEConv(in_dim,      hidden,      aggr="mean", normalize=True)
         self.conv2 = SAGEConv(hidden,      hidden // 2, aggr="mean", normalize=True)
         self.conv3 = SAGEConv(hidden // 2, 64,          aggr="mean", normalize=True)
+        self.bn1   = nn.BatchNorm1d(hidden)
+        self.bn2   = nn.BatchNorm1d(hidden // 2)
+        self.bn3   = nn.BatchNorm1d(64)
+        self.cls_head = nn.Sequential(
+            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1)
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def encode(self, x, edge_index):
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.shape[0])
+        x = self.drop(F.relu(self.bn1(self.conv1(x, edge_index))))
+        x = self.drop(F.relu(self.bn2(self.conv2(x, edge_index))))
+        x = self.drop(F.relu(self.bn3(self.conv3(x, edge_index))))
+        return x   # [N, 64]
+
+    def forward(self, x, edge_index):
+        h = self.encode(x, edge_index)
+        return self.cls_head(h).squeeze(-1)   # [N] logits
+
+    def link_logits(self, h, edge_index_lp):
+        """Dot-product link prediction score for edges in edge_index_lp."""
+        h_u = h[edge_index_lp[0]]   # [E_lp, 64]
+        h_v = h[edge_index_lp[1]]   # [E_lp, 64]
+        return (h_u * h_v).sum(dim=-1)   # [E_lp] logits
+
+
+class BotGCN(nn.Module):
+    """GCN: 3-layer GCNConv with symmetric normalisation."""
+    def __init__(self, in_dim, hidden=256, dropout=0.4):
+        super().__init__()
+        self.conv1 = GCNConv(in_dim,      hidden,      normalize=True)
+        self.conv2 = GCNConv(hidden,      hidden // 2, normalize=True)
+        self.conv3 = GCNConv(hidden // 2, 64,          normalize=True)
         self.bn1   = nn.BatchNorm1d(hidden)
         self.bn2   = nn.BatchNorm1d(hidden // 2)
         self.bn3   = nn.BatchNorm1d(64)
@@ -105,10 +143,55 @@ class BotSAGE(nn.Module):
         return self.cls_head(h).squeeze(-1)   # [N] logits
 
     def link_logits(self, h, edge_index_lp):
-        """Dot-product link prediction score for edges in edge_index_lp."""
-        h_u = h[edge_index_lp[0]]   # [E_lp, 64]
-        h_v = h[edge_index_lp[1]]   # [E_lp, 64]
-        return (h_u * h_v).sum(dim=-1)   # [E_lp] logits
+        h_u = h[edge_index_lp[0]]
+        h_v = h[edge_index_lp[1]]
+        return (h_u * h_v).sum(dim=-1)
+
+
+class BotGAT(nn.Module):
+    """
+    GAT: 3-layer GATConv with multi-head attention.
+    Heads: 4×64→256, 4×32→128, 1×64→64
+    """
+    def __init__(self, in_dim, hidden=256, dropout=0.4):
+        super().__init__()
+        self.conv1 = GATConv(in_dim,  64, heads=4, concat=True)
+        self.conv2 = GATConv(256,      32, heads=4, concat=True)
+        self.conv3 = GATConv(128,      64, heads=1, concat=False)
+        self.bn1   = nn.BatchNorm1d(256)
+        self.bn2   = nn.BatchNorm1d(128)
+        self.bn3   = nn.BatchNorm1d(64)
+        self.cls_head = nn.Sequential(
+            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(dropout), nn.Linear(32, 1)
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def encode(self, x, edge_index):
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.shape[0])
+        x = self.drop(F.relu(self.bn1(self.conv1(x, edge_index))))
+        x = self.drop(F.relu(self.bn2(self.conv2(x, edge_index))))
+        x = self.drop(F.relu(self.bn3(self.conv3(x, edge_index))))
+        return x   # [N, 64]
+
+    def forward(self, x, edge_index):
+        h = self.encode(x, edge_index)
+        return self.cls_head(h).squeeze(-1)   # [N] logits
+
+    def link_logits(self, h, edge_index_lp):
+        h_u = h[edge_index_lp[0]]
+        h_v = h[edge_index_lp[1]]
+        return (h_u * h_v).sum(dim=-1)
+
+
+# Map model name → model class (used in experiment grid)
+MODEL_CLASSES = {
+    "sage_vanilla": BotSAGE,
+    "tresa":        BotSAGE,
+    "gcn_vanilla":  BotGCN,
+    "gcn_tresa":    BotGCN,
+    "gat_vanilla":  BotGAT,
+    "gat_tresa":    BotGAT,
+}
 
 
 # ── Training helpers ──────────────────────────────────────────────────────────
@@ -140,11 +223,13 @@ def train_one_fold(
     num_nodes: int,
     neg_sampler: NegativeSampler,
     rng: np.random.Generator,
+    model_class=BotSAGE,
 ):
     """
     Train for one fold. Returns (best_val_f1, best_val_auc, oof_preds, oof_probs).
     sparse_ei_fn is called each epoch to get a fresh drop mask (stochastic aug).
     When use_lp=False → SAGE vanilla (only L_cls, uses sparse_ei without L_lp).
+    model_class controls which GNN architecture is used.
     """
     scaler  = RobustScaler()
     X_tr    = scaler.fit_transform(X_raw[tr_idx])
@@ -153,9 +238,8 @@ def train_one_fold(
     X_scaled[tr_idx] = X_tr
     X_scaled[va_idx] = X_va
 
-    # Build static val data (full graph for evaluation)
-    full_ei_sl, _ = add_self_loops(full_ei, num_nodes=num_nodes)
-    val_data = make_pyg_data(X_scaled, full_ei_sl, y)
+    # Build static val data (raw edge_index — each model adds self-loops internally)
+    val_data = make_pyg_data(X_scaled, full_ei, y)
 
     tr_mask = torch.zeros(num_nodes, dtype=torch.bool)
     va_mask = torch.zeros(num_nodes, dtype=torch.bool)
@@ -168,7 +252,7 @@ def train_one_fold(
     n_pos = (y[tr_idx] == 1).sum()
     pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32).to(DEVICE)
 
-    model     = BotSAGE(in_dim=X_raw.shape[1], hidden=HIDDEN, dropout=DROPOUT).to(DEVICE)
+    model     = model_class(in_dim=X_raw.shape[1], hidden=HIDDEN, dropout=DROPOUT).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
@@ -181,10 +265,9 @@ def train_one_fold(
         model.train()
         optimizer.zero_grad()
 
-        # Fresh sparse graph each epoch
+        # Fresh sparse graph each epoch (raw edge_index — model adds self-loops)
         kept_ei, dropped_ei = sparse_ei_fn(epoch)
-        kept_ei_sl, _ = add_self_loops(kept_ei, num_nodes=num_nodes)
-        train_ei = kept_ei_sl.to(DEVICE)
+        train_ei = kept_ei.to(DEVICE)
 
         # Forward pass
         h      = model.encode(x_tensor, train_ei)
@@ -281,12 +364,12 @@ def per_cat_f1(y, preds, groups):
     }
 
 
-# ── GNN runner (handles both SAGE vanilla and TRESA) ─────────────────────────
+# ── GNN runner (handles vanilla and TRESA variants for all architectures) ─────
 
 def run_gnn(
     X_raw, y, groups, full_ei, num_nodes,
     drop_rate, paradigm, use_lp, lambda_lp,
-    cv, seed,
+    cv, seed, model_class,
 ):
     rng        = np.random.default_rng(seed)
     neg_samp   = NegativeSampler(full_ei, num_nodes=num_nodes, ratio=1)
@@ -316,6 +399,7 @@ def run_gnn(
             full_ei, sparse_ei_fn,
             use_lp=use_lp, lambda_lp=lambda_lp,
             num_nodes=num_nodes, neg_sampler=neg_samp, rng=rng,
+            model_class=model_class,
         )
         fold_f1s.append(val_f1)
         fold_aucs.append(val_auc)
@@ -385,19 +469,39 @@ def main():
     ts("Running RF baseline (graph-agnostic)...")
     rf_res = run_rf(X_raw, y, groups, cv)
     ts(f"  RF: F1={rf_res['f1_mean']:.4f} ± {rf_res['f1_std']:.4f}")
-    # RF result is constant across all drop rates
     results["rf"] = {str(p): rf_res for p in DROP_RATES}
 
     # ── GNN experiments ───────────────────────────────────────────────────────
+    # (model_name, use_lp) pairs
+    model_variants = [
+        ("sage_vanilla", False),
+        ("tresa",        True),
+        ("gcn_vanilla",  False),
+        ("gcn_tresa",    True),
+        ("gat_vanilla",  False),
+        ("gat_tresa",    True),
+    ]
+
+    DISPLAY_NAMES = {
+        "sage_vanilla": "SAGE vanilla",
+        "tresa":        "TRESA (SAGE)",
+        "gcn_vanilla":  "GCN vanilla",
+        "gcn_tresa":    "TRESA (GCN)",
+        "gat_vanilla":  "GAT vanilla",
+        "gat_tresa":    "TRESA (GAT)",
+    }
+
     for paradigm in PARADIGMS:
-        for model_name, use_lp in [("sage_vanilla", False), ("tresa", True)]:
+        for model_name, use_lp in model_variants:
             key = f"{model_name}_{paradigm}"
             results[key] = {}
             f1_by_drop = []
 
             ts(f"\n{'='*58}")
-            ts(f"Model: {model_name.upper()}  |  Paradigm: {paradigm}")
+            ts(f"Model: {DISPLAY_NAMES[model_name]:>15s}  |  Paradigm: {paradigm}")
             ts(f"{'='*58}")
+
+            model_class = MODEL_CLASSES[model_name]
 
             for drop_rate in DROP_RATES:
                 t0 = time.time()
@@ -406,6 +510,7 @@ def main():
                     drop_rate=drop_rate, paradigm=paradigm,
                     use_lp=use_lp, lambda_lp=LAMBDA_LP,
                     cv=cv, seed=SEEDS[0],
+                    model_class=model_class,
                 )
                 elapsed = time.time() - t0
                 results[key][str(drop_rate)] = res
@@ -419,29 +524,28 @@ def main():
             ts(f"  → Robustness AUC: {rob_auc:.4f}")
 
     # ── Summary table ─────────────────────────────────────────────────────────
-    print(f"\n{'='*70}")
+    print(f"\n{'='*100}")
     print("ROBUSTNESS SUMMARY")
-    print(f"{'='*70}")
-    print(f"  {'Model':28s}  {'Paradigm':15s}  {'Rob. AUC':>10}  {'F1@0%':>8}  {'F1@60%':>8}")
-    print("  " + "-" * 66)
+    print(f"{'='*100}")
+    print(f"  {'Model':25s}  {'Paradigm':14s}  {'Rob. AUC':>10}  {'F1@0%':>8}  {'F1@60%':>8}")
+    print("  " + "-" * 70)
 
     rf_f1_base = results["rf"]["0.0"]["f1_mean"]
-    print(f"  {'RF (node-only)':28s}  {'—':15s}  {'—':>10}  {rf_f1_base:>8.4f}  {rf_f1_base:>8.4f}")
+    print(f"  {'RF (node-only)':25s}  {'—':14s}  {'—':>10}  {rf_f1_base:>8.4f}  {rf_f1_base:>8.4f}")
 
     for paradigm in PARADIGMS:
-        for model_name in ["sage_vanilla", "tresa"]:
+        for model_name, _ in model_variants:
             key  = f"{model_name}_{paradigm}"
             rob  = results[key].get("robustness_auc", 0)
             f1_0 = results[key]["0.0"]["f1_mean"]
             f1_6 = results[key]["0.6"]["f1_mean"]
-            label = "TRESA (ours)" if model_name == "tresa" else "SAGE vanilla"
-            print(f"  {label:28s}  {paradigm:15s}  {rob:>10.4f}  {f1_0:>8.4f}  {f1_6:>8.4f}")
+            print(f"  {DISPLAY_NAMES[model_name]:25s}  {paradigm:14s}  {rob:>10.4f}  {f1_0:>8.4f}  {f1_6:>8.4f}")
 
     # RF crossover analysis
     print(f"\n  RF F1 ceiling: {rf_f1_base:.4f}")
     print("  Crossover point (GNN drops below RF):")
     for paradigm in PARADIGMS:
-        for model_name in ["sage_vanilla", "tresa"]:
+        for model_name, _ in model_variants:
             key = f"{model_name}_{paradigm}"
             crossover = "never"
             for dr in DROP_RATES:
@@ -449,8 +553,7 @@ def main():
                 if f1 < rf_f1_base:
                     crossover = f"{dr:.0%}"
                     break
-            label = "TRESA" if model_name == "tresa" else "SAGE "
-            print(f"    {label} [{paradigm}]: {crossover}")
+            print(f"    {DISPLAY_NAMES[model_name]:>15s} [{paradigm}]: {crossover}")
 
     # Save
     out = os.path.join(DATA_ROOT, "tresa_results.json")

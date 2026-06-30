@@ -28,7 +28,9 @@ characterised the graph density conditions under which such robustness even matt
 |---|---|---|---|
 | RF node-only (15 features) | 0.9816 ± 0.0018 | 0.9979 ± 0.0005 | — |
 | RF node+graph (26 features) | 0.9823 ± 0.0019 | 0.9982 ± 0.0004 | +0.0007 |
-| GraphSAGE (full graph) | 0.9793 ± 0.0028 | 0.9966 ± 0.0011 | −0.0023 |
+| GraphSAGE (full graph) | 0.9794 ± 0.0034 | 0.9967 ± 0.0005 | −0.0022 |
+| GCN (full graph) | 0.9483 ± 0.0040 | 0.9841 ± 0.0027 | −0.0333 |
+| GAT (full graph) | 0.9360 ± 0.0219 | 0.9808 ± 0.0054 | −0.0456 |
 
 **Dataset graph statistics:**
 - 14,368 nodes · 1,423 retweet edges · density ~0.001%
@@ -82,10 +84,18 @@ robust to API-incomplete graph data.
 | Model | Paradigm | 0% | 20% | 40% | 60% | Rob.AUC |
 |---|---|---|---|---|---|---|
 | RF (node-only) | — | 0.9827 | 0.9827 | 0.9827 | 0.9827 | — |
-| SAGE vanilla | random | 0.9795 | 0.9794 | 0.9785 | 0.9780 | 0.9789 |
-| **TRESA (ours)** | **random** | **0.9788** | **0.9627** | **0.9649** | **0.9640** | **0.9663** |
-| SAGE vanilla | degree-biased | 0.9793 | 0.9791 | 0.9801 | 0.9794 | 0.9795 |
-| **TRESA (ours)** | **degree-biased** | **0.9795** | **0.9584** | **0.9619** | **0.9616** | **0.9636** |
+| GraphSAGE vanilla | random | 0.9801 | 0.9794 | 0.9793 | 0.9786 | 0.9793 |
+| **TRESA (SAGE)** | **random** | **0.9799** | **0.9609** | **0.9641** | **0.9629** | **0.9655** |
+| GCN vanilla | random | 0.9479 | 0.9484 | 0.9464 | 0.9479 | 0.9476 |
+| **TRESA (GCN)** | **random** | **0.9497** | **0.7588** | **0.7711** | **0.7034** | **0.7855** |
+| GAT vanilla | random | 0.9488 | 0.9483 | 0.9471 | 0.9472 | 0.9478 |
+| **TRESA (GAT)** | **random** | **0.9498** | **0.7688** | **0.6686** | **0.7142** | **0.7565** |
+| GraphSAGE vanilla | degree-biased | 0.9789 | 0.9792 | 0.9790 | 0.9793 | 0.9791 |
+| **TRESA (SAGE)** | **degree-biased** | **0.9799** | **0.9614** | **0.9644** | **0.9621** | **0.9656** |
+| GCN vanilla | degree-biased | 0.9482 | 0.9493 | 0.9488 | 0.9496 | 0.9490 |
+| **TRESA (GCN)** | **degree-biased** | **0.9505** | **0.8560** | **0.9129** | **0.9310** | **0.9032** |
+| GAT vanilla | degree-biased | 0.9459 | 0.9498 | 0.9490 | 0.9497 | 0.9489 |
+| **TRESA (GAT)** | **degree-biased** | **0.9495** | **0.7643** | **0.6433** | **0.7890** | **0.7589** |
 
 #### Crossover point
 All GNN models start below the RF baseline at 0% drop. There is no crossover — the GNNs never match RF on this dataset regardless of edge completeness.
@@ -104,10 +114,18 @@ Below are the F1 score decay curves and the comparison heatmaps under the random
 | Model | Paradigm | 0% | 20% | 40% | 60% | Rob.AUC |
 |---|---|---|---|---|---|---|
 | RF (node-only) | — | 0.8908 | 0.8908 | 0.8908 | 0.8908 | — |
-| SAGE vanilla | random | 0.8833 | 0.8830 | 0.8821 | 0.8845 | 0.8830 |
-| **TRESA (ours)** | **random** | **0.8833** | **0.8824** | **0.8813** | **0.8821** | **0.8821** |
-| SAGE vanilla | degree-biased | 0.8849 | 0.8816 | 0.8825 | 0.8816 | 0.8825 |
-| **TRESA (ours)** | **degree-biased** | **0.8840** | **0.8830** | **0.8815** | **0.8810** | **0.8823** |
+| GraphSAGE vanilla | random | 0.8831 | 0.8843 | 0.8829 | 0.8839 | 0.8836 |
+| **TRESA (SAGE)** | **random** | **0.8822** | **0.8818** | **0.8817** | **0.8815** | **0.8818** |
+| GCN vanilla | random | 0.7707 | 0.7717 | 0.7697 | 0.7637 | 0.7695 |
+| **TRESA (GCN)** | **random** | **0.7701** | **0.7625** | **0.7610** | **0.7526** | **0.7616** |
+| GAT vanilla | random | 0.7645 | 0.7539 | 0.7678 | 0.7718 | 0.7633 |
+| **TRESA (GAT)** | **random** | **0.7639** | **0.7504** | **0.7429** | **0.7283** | **0.7465** |
+| GraphSAGE vanilla | degree-biased | 0.8840 | 0.8845 | 0.8823 | 0.8828 | 0.8834 |
+| **TRESA (SAGE)** | **degree-biased** | **0.8842** | **0.8817** | **0.8805** | **0.8787** | **0.8812** |
+| GCN vanilla | degree-biased | 0.7705 | 0.7732 | 0.7730 | 0.7712 | 0.7724 |
+| **TRESA (GCN)** | **degree-biased** | **0.7733** | **0.7702** | **0.7681** | **0.7688** | **0.7698** |
+| GAT vanilla | degree-biased | 0.7797 | 0.7709 | 0.7259 | 0.7766 | 0.7583 |
+| **TRESA (GAT)** | **degree-biased** | **0.7816** | **0.7552** | **0.7486** | **0.7462** | **0.7559** |
 
 #### Crossover point
 Similar to cresci-2017, the GNN models start below the RF baseline at 0% drop and never cross it.
@@ -181,12 +199,12 @@ We validated this hypothesis by running the entire pipeline on the **MGTAB** dat
 | **Density** | 0.001% | 1.6% |
 | **Isolated Nodes** | 96% | 0.5% |
 | **RF F1 (macro)** | 0.9827 | 0.8908 |
-| **SAGE F1 @ 0% drop** | 0.9795 | 0.8833 |
-| **SAGE F1 @ 60% drop (random)** | 0.9780 | 0.8845 |
-| **SAGE degradation (0% → 60%)** | −0.0015 | +0.0012 |
-| **TRESA vs SAGE (Rob.AUC delta)** | −0.0126 (degrades) | −0.0009 (neutral) |
+| **SAGE F1 @ 0% drop** | 0.9801 | 0.8831 |
+| **SAGE F1 @ 60% drop (random)** | 0.9786 | 0.8839 |
+| **SAGE degradation (0% → 60%)** | −0.0015 | +0.0008 |
+| **TRESA vs SAGE (Rob.AUC delta)** | −0.0138 (degrades) | −0.0018 (degrades) |
 
-On MGTAB, because of the higher edge density (1.6%), the GNN does not degrade when edges are dropped (F1 actually stays flat or improves slightly by +0.0012). However, even in this dense graph regime, the TRESA joint link-prediction auxiliary loss remains neutral (-0.0009 Rob.AUC delta) and does not improve robustness. This confirms our core methodological finding: graph-based regularizations/losses are structurally unnecessary when node features are dominant, and do not provide statistical benefits even under high-density topologies.
+On MGTAB, because of the higher edge density (1.6%), the GNN does not degrade significantly when edges are dropped (F1 stays relatively flat at +0.0008). However, even in this dense graph regime, the TRESA joint link-prediction auxiliary loss degrades performance slightly (-0.0018 Rob.AUC delta) and does not improve robustness. This confirms our core methodological finding: graph-based regularizations/losses are structurally unnecessary when node features are dominant, and do not provide statistical benefits even under high-density topologies.
 
 ---
 

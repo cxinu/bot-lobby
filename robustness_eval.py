@@ -6,12 +6,6 @@ Generates four outputs:
   2. robustness_heatmap.png  — F1 at each (model, drop, paradigm) cell
   3. cat_f1_breakdown.png    — per bot-type F1 at 0% and 60% drop
   4. results_summary.txt     — formatted table for the paper
-
-Key finding visualised:
-  - SAGE vanilla is flat under sparsification → already graph-agnostic
-  - TRESA L_lp hurts in sparse regime → gradient conflict diagnosis
-  - RF is the ceiling throughout → node features dominate cresci-2017
-  - Degree-biased drop is near-no-op → hub edges are already absent
 """
 
 import json
@@ -43,11 +37,19 @@ COLORS = {
     "rf":           "#2ecc71",
     "sage_vanilla": "#7f77dd",
     "tresa":        "#e74c3c",
+    "gcn_vanilla":  "#3498db",
+    "gcn_tresa":    "#f39c12",
+    "gat_vanilla":  "#1abc9c",
+    "gat_tresa":    "#9b59b6",
 }
 LABELS = {
     "rf":           "RF (node-only)",
     "sage_vanilla": "GraphSAGE vanilla",
-    "tresa":        "TRESA (ours)",
+    "tresa":        "TRESA (SAGE)",
+    "gcn_vanilla":  "GCN vanilla",
+    "gcn_tresa":    "TRESA (GCN)",
+    "gat_vanilla":  "GAT vanilla",
+    "gat_tresa":    "TRESA (GAT)",
 }
 PARADIGM_LABELS = {
     "random":        "Random drop",
@@ -57,6 +59,9 @@ PARADIGM_LABELS = {
 DROP_RATES   = [0.0, 0.2, 0.4, 0.6]
 DROP_LABELS  = ["0%", "20%", "40%", "60%"]
 PARADIGMS    = ["random", "degree_biased"]
+
+# All model variants in order (RF is handled separately)
+MODEL_KEYS = ["sage_vanilla", "tresa", "gcn_vanilla", "gcn_tresa", "gat_vanilla", "gat_tresa"]
 
 # ── Load ───────────────────────────────────────────────────────────────────────
 print("Loading results...")
@@ -76,7 +81,7 @@ rf_std = results["rf"]["0.0"]["f1_std"]
 # ════════════════════════════════════════════════════════════════════════════
 # Figure 1: Robustness curves — 1×2 subplots (one per paradigm)
 # ════════════════════════════════════════════════════════════════════════════
-fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+fig, axes = plt.subplots(1, 2, figsize=(14, 5.5), sharey=True)
 fig.suptitle(
     "GNN robustness under edge sparsification — cresci-2017",
     fontsize=13, fontweight="bold", y=1.01
@@ -91,32 +96,17 @@ for ax, paradigm in zip(axes, PARADIGMS):
     ax.axhspan(rf_f1 - rf_std, rf_f1 + rf_std,
                color=COLORS["rf"], alpha=0.12, zorder=1)
 
-    # SAGE vanilla
-    s_means, s_stds = get_f1_curve(f"sage_vanilla_{paradigm}")
-    ax.plot(xs, s_means, color=COLORS["sage_vanilla"], linewidth=2.0,
-            linestyle="--", marker="o", markersize=6,
-            label=LABELS["sage_vanilla"], zorder=4)
-    ax.fill_between(xs, s_means - s_stds, s_means + s_stds,
-                    color=COLORS["sage_vanilla"], alpha=0.15, zorder=2)
-
-    # TRESA
-    t_means, t_stds = get_f1_curve(f"tresa_{paradigm}")
-    ax.plot(xs, t_means, color=COLORS["tresa"], linewidth=2.0,
-            linestyle="-", marker="s", markersize=6,
-            label=LABELS["tresa"], zorder=4)
-    ax.fill_between(xs, t_means - t_stds, t_means + t_stds,
-                    color=COLORS["tresa"], alpha=0.15, zorder=2)
-
-    # Annotate the TRESA drop at 20%
-    drop_20_tresa = t_means[1]
-    drop_20_sage  = s_means[1]
-    delta = drop_20_tresa - drop_20_sage
-    ax.annotate(
-        f"L_lp penalty\n({delta:+.3f} F1)",
-        xy=(20, drop_20_tresa), xytext=(25, drop_20_tresa - 0.008),
-        fontsize=8.5, color=COLORS["tresa"],
-        arrowprops=dict(arrowstyle="->", color=COLORS["tresa"], lw=1.0),
-    )
+    # GNN models
+    for mk in MODEL_KEYS:
+        key = f"{mk}_{paradigm}"
+        means, stds = get_f1_curve(key)
+        linestyle = "-" if "tresa" in mk else "--"
+        marker = "s" if "tresa" in mk else "o"
+        ax.plot(xs, means, color=COLORS[mk], linewidth=1.8,
+                linestyle=linestyle, marker=marker, markersize=5,
+                label=LABELS[mk], zorder=4)
+        ax.fill_between(xs, means - stds, means + stds,
+                        color=COLORS[mk], alpha=0.10, zorder=2)
 
     ax.set_title(PARADIGM_LABELS[paradigm], fontsize=11, fontweight="bold")
     ax.set_xlabel("Edges dropped (%)")
@@ -128,9 +118,8 @@ for ax, paradigm in zip(axes, PARADIGMS):
     if paradigm == "random":
         ax.set_ylabel("Macro F1")
 
-axes[0].legend(loc="lower left", fontsize=9, framealpha=0.9)
+axes[0].legend(loc="lower left", fontsize=8, framealpha=0.9, ncol=2)
 
-# Add finding annotation box
 finding_txt = (
     "Key finding: SAGE is already graph-agnostic on cresci-2017\n"
     "(96% nodes isolated). L_lp degrades performance in\n"
@@ -151,13 +140,12 @@ print(f"Saved → {fig1_path}")
 # ════════════════════════════════════════════════════════════════════════════
 # Figure 2: Heatmap — F1 at each cell
 # ════════════════════════════════════════════════════════════════════════════
-fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
+fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 fig.suptitle("F1 scores across sparsification grid", fontsize=12,
              fontweight="bold", y=1.02)
 
 for ax, paradigm in zip(axes, PARADIGMS):
-    models   = ["sage_vanilla", "tresa"]
-    n_models = len(models) + 1   # +1 for RF row
+    n_models = len(MODEL_KEYS) + 1   # +1 for RF row
     n_drops  = len(DROP_RATES)
 
     matrix = np.zeros((n_models, n_drops))
@@ -165,12 +153,12 @@ for ax, paradigm in zip(axes, PARADIGMS):
     # RF row (constant)
     matrix[0, :] = rf_f1
 
-    for mi, model in enumerate(models):
+    for mi, model in enumerate(MODEL_KEYS):
         key = f"{model}_{paradigm}"
         for di, dr in enumerate(DROP_RATES):
             matrix[mi + 1, di] = results[key][str(dr)]["f1_mean"]
 
-    row_labels = ["RF (node-only)", "SAGE vanilla", "TRESA (ours)"]
+    row_labels = ["RF (node-only)"] + [LABELS[m] for m in MODEL_KEYS]
     vmin, vmax = 0.955, 0.985
 
     im = ax.imshow(matrix, aspect="auto", cmap="RdYlGn",
@@ -179,16 +167,15 @@ for ax, paradigm in zip(axes, PARADIGMS):
     ax.set_xticks(range(n_drops))
     ax.set_xticklabels(DROP_LABELS)
     ax.set_yticks(range(n_models))
-    ax.set_yticklabels(row_labels, fontsize=9)
+    ax.set_yticklabels(row_labels, fontsize=8)
     ax.set_xlabel("Edges dropped (%)")
     ax.set_title(PARADIGM_LABELS[paradigm], fontsize=10, fontweight="bold")
 
     for i in range(n_models):
         for j in range(n_drops):
             val = matrix[i, j]
-            txt_color = "white" if val < (vmin + vmax) / 2 else "black"
             ax.text(j, i, f"{val:.4f}", ha="center", va="center",
-                    fontsize=8.5, fontweight="bold", color="#222222")
+                    fontsize=7.5, fontweight="bold", color="#222222")
 
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04,
                  label="Macro F1")
@@ -206,24 +193,27 @@ print(f"Saved → {fig2_path}")
 categories = ["fake_followers", "genuine", "social_spambot", "trad_spambot"]
 cat_labels  = ["Fake\nFollowers", "Genuine", "Social\nSpambot", "Trad.\nSpambot"]
 
-fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=True)
+# Include all models in the category breakdown
+breakdown_models = ["rf"] + MODEL_KEYS
+n_breakdown = len(breakdown_models)
+n_cols = 4
+n_rows = int(np.ceil(n_breakdown / n_cols))
+
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows), sharey=True)
 fig.suptitle("Per-category F1: effect of 60% random edge drop",
              fontsize=12, fontweight="bold")
 
-models_to_plot = [
-    ("rf",           "rf",                  "random"),
-    ("sage_vanilla", "sage_vanilla_random", "random"),
-    ("tresa",        "tresa_random",        "random"),
-]
-
-for ax, (model_key, result_key, paradigm) in zip(axes, models_to_plot):
+axes_flat = axes.flatten()
+for idx, model_key in enumerate(breakdown_models):
+    ax = axes_flat[idx]
     x  = np.arange(len(categories))
     w  = 0.32
 
     if model_key == "rf":
         f1_0  = [results["rf"]["0.0"]["cat_f1"].get(c, 0) for c in categories]
-        f1_60 = f1_0   # RF is constant
+        f1_60 = f1_0
     else:
+        result_key = f"{model_key}_random"
         f1_0  = [results[result_key]["0.0"]["cat_f1"].get(c, 0) for c in categories]
         f1_60 = [results[result_key]["0.6"]["cat_f1"].get(c, 0) for c in categories]
 
@@ -233,24 +223,27 @@ for ax, (model_key, result_key, paradigm) in zip(axes, models_to_plot):
                     alpha=0.45, edgecolor=COLORS[model_key], linewidth=1.0,
                     hatch="//")
 
-    ax.set_title(LABELS[model_key], fontsize=10, fontweight="bold",
+    ax.set_title(LABELS[model_key], fontsize=9, fontweight="bold",
                  color=COLORS[model_key])
     ax.set_xticks(x)
-    ax.set_xticklabels(cat_labels, fontsize=9)
+    ax.set_xticklabels(cat_labels, fontsize=8)
     ax.set_ylim(0.0, 1.05)
     ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
     if model_key == "rf":
         ax.set_ylabel("F1 score")
 
-    ax.legend(fontsize=8, loc="lower right")
+    ax.legend(fontsize=7, loc="lower right")
 
-    # Value labels on bars
     for bar in list(bars0) + list(bars60):
         h = bar.get_height()
         if h > 0.05:
             ax.text(bar.get_x() + bar.get_width() / 2, h + 0.01,
-                    f"{h:.3f}", ha="center", va="bottom", fontsize=6.5,
+                    f"{h:.3f}", ha="center", va="bottom", fontsize=6,
                     rotation=45)
+
+# Hide unused subplots
+for idx in range(len(breakdown_models), len(axes_flat)):
+    axes_flat[idx].set_visible(False)
 
 plt.tight_layout()
 fig3_path = os.path.join(OUT_DIR, "cat_f1_breakdown.png")
@@ -264,80 +257,34 @@ print(f"Saved → {fig3_path}")
 # ════════════════════════════════════════════════════════════════════════════
 summary_lines = []
 summary_lines.append("TRESA ROBUSTNESS EVALUATION — cresci-2017")
-summary_lines.append("=" * 62)
+summary_lines.append("=" * 80)
 summary_lines.append("Dataset: 14,368 nodes  |  1,423 retweet edges  |  96% isolated")
 summary_lines.append("CV: 5-fold stratified  |  Metric: macro F1")
 summary_lines.append("")
 
 summary_lines.append("Table 1: F1 across sparsification levels")
-summary_lines.append("-" * 62)
-header = f"{'Model':22s}  {'Paradigm':14s}" + "".join(f"  {l:>7s}" for l in DROP_LABELS) + "  Rob.AUC"
+summary_lines.append("-" * 80)
+header = f"{'Model':25s}  {'Paradigm':14s}" + "".join(f"  {lb:>7s}" for lb in DROP_LABELS) + "  Rob.AUC"
 summary_lines.append(header)
-summary_lines.append("-" * 62)
+summary_lines.append("-" * 80)
 
 # RF row
-rf_row = f"{'RF (node-only)':22s}  {'—':14s}"
+rf_row = f"{'RF (node-only)':25s}  {'—':14s}"
 for _ in DROP_RATES:
     rf_row += f"  {rf_f1:.4f}"
 rf_row += "     —"
 summary_lines.append(rf_row)
 
 for paradigm in PARADIGMS:
-    for model_name in ["sage_vanilla", "tresa"]:
+    for model_name in MODEL_KEYS:
         key   = f"{model_name}_{paradigm}"
-        label = "TRESA (ours)" if model_name == "tresa" else "SAGE vanilla"
+        label = LABELS[model_name]
         rob   = results[key].get("robustness_auc", 0)
-        row   = f"{label:22s}  {paradigm:14s}"
+        row   = f"{label:25s}  {paradigm:14s}"
         for dr in DROP_RATES:
             row += f"  {results[key][str(dr)]['f1_mean']:.4f}"
         row += f"  {rob:.4f}"
         summary_lines.append(row)
-
-summary_lines.append("")
-summary_lines.append("Table 2: Robustness AUC summary")
-summary_lines.append("-" * 62)
-for paradigm in PARADIGMS:
-    for model_name in ["sage_vanilla", "tresa"]:
-        key   = f"{model_name}_{paradigm}"
-        rob   = results[key].get("robustness_auc", 0)
-        label = "TRESA (ours)" if model_name == "tresa" else "SAGE vanilla"
-        summary_lines.append(f"  {label:22s}  [{paradigm}]  Rob.AUC = {rob:.4f}")
-
-summary_lines.append("")
-summary_lines.append("Key findings")
-summary_lines.append("-" * 62)
-summary_lines.append(
-    "1. RF ceiling: F1=0.9827. Both GNN models start below RF (SAGE=0.9795,\n"
-    "   TRESA=0.9788). The graph adds no value on this dataset.\n"
-    "2. SAGE vanilla shows near-zero degradation under edge drop in both\n"
-    "   paradigms — it is already operating as a node-feature classifier.\n"
-    "   This is direct evidence that 96% graph isolation makes the GNN\n"
-    "   architecture irrelevant on cresci-2017.\n"
-    "3. TRESA (L_lp auxiliary loss) degrades ~1.5% F1 relative to vanilla\n"
-    "   SAGE under random drop. Diagnosis: the link prediction gradient\n"
-    "   conflicts with classification in the sparse-graph regime — there\n"
-    "   are too few positive edge pairs (≤1,423) to usefully shape the\n"
-    "   encoder geometry across 14,368 nodes.\n"
-    "4. Degree-biased drop is near-no-op for both models: the hub nodes\n"
-    "   that lose edges are already the minority, and their neighbourhood\n"
-    "   information is not load-bearing for the classifier.\n"
-    "5. These findings collectively demonstrate that graph robustness\n"
-    "   techniques (including L_lp regularisation) are only meaningful\n"
-    "   when graph density is sufficient. cresci-2017 fails this\n"
-    "   prerequisite by construction. Future work should validate on\n"
-    "   MGTAB (density ~5%) where this constraint is relaxed."
-)
-
-summary_lines.append("")
-summary_lines.append("Reframed contribution")
-summary_lines.append("-" * 62)
-summary_lines.append(
-    "This paper is the first to systematically characterise the conditions\n"
-    "under which GNN-based bot detectors degrade under edge sparsification,\n"
-    "and to demonstrate that the standard benchmark (cresci-2017) is\n"
-    "structurally unsuitable for evaluating graph robustness due to its\n"
-    "per-category crawl methodology. The negative result is the result."
-)
 
 summary_txt = "\n".join(summary_lines)
 print("\n" + summary_txt)
